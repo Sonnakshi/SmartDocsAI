@@ -1,0 +1,8 @@
+.env
+venv/
+.venv/
+__pycache__/
+*.pyc
+backend/app/__pycache__/
+backend/qdrant_storage/
+SmartDocs_AI_8_Week_Internship_Plan.docx
