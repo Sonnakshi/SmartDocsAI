@@ -25,7 +25,7 @@ from app.schemas import (
     ChatRequest,
     ChatResponse,
 )
-from app.database import users_collection, documents_collection
+from app.database import users_collection, documents_collection, chats_collection
 from app.security import (
     hash_password,
     verify_password,
@@ -54,7 +54,7 @@ tags_metadata = [
     {"name": "Authentication", "description": "User registration, login, and token refresh endpoints."},
     {"name": "Users", "description": "Endpoints for the currently authenticated user profile."},
     {"name": "Documents", "description": "Upload, list, download, search, and delete documents."},
-    {"name": "AI Chat", "description": "Ask questions about your documents using AI (RAG)."},
+    {"name": "AI Chat", "description": "Ask questions about your documents using AI (RAG) with persistent threads."},
     {"name": "Admin", "description": "Admin-only endpoints."},
 ]
 
@@ -579,7 +579,7 @@ async def delete_document(
     return {"message": "Document deleted successfully"}
 
 
-# ========== AI CHAT (RAG) ROUTE ==========
+# ========== AI CHAT (RAG WITH PERSISTENT THREADS) ==========
 
 
 @app.post(
@@ -601,7 +601,61 @@ async def chat_with_documents(
         min_score=request.min_score,
         chat_history=request.chat_history,
     )
+
+    # Save turn in MongoDB under this user and document scope
+    scope_id = request.document_id if request.document_id else "all"
+    await chats_collection.update_one(
+        {"owner_id": current_user.id, "scope_id": scope_id},
+        {
+            "$push": {
+                "messages": {
+                    "$each": [
+                        {"role": "user", "content": request.question},
+                        {
+                            "role": "assistant",
+                            "content": response.answer,
+                            "citations": [c.model_dump() for c in response.citations],
+                        },
+                    ]
+                }
+            }
+        },
+        upsert=True,
+    )
+
     return response
+
+
+@app.get(
+    "/chats/{document_id_or_all}",
+    tags=["AI Chat"],
+    summary="Get persistent chat history for a document thread",
+)
+async def get_chat_thread(
+    document_id_or_all: str,
+    current_user: UserResponse = Depends(get_current_user),
+):
+    thread_doc = await chats_collection.find_one(
+        {"owner_id": current_user.id, "scope_id": document_id_or_all}
+    )
+    if thread_doc:
+        return thread_doc.get("messages", [])
+    return []
+
+
+@app.post(
+    "/chats/{document_id_or_all}/clear",
+    tags=["AI Chat"],
+    summary="Clear persistent chat history for a document thread",
+)
+async def clear_chat_thread(
+    document_id_or_all: str,
+    current_user: UserResponse = Depends(get_current_user),
+):
+    await chats_collection.delete_one(
+        {"owner_id": current_user.id, "scope_id": document_id_or_all}
+    )
+    return {"message": "Thread cleared successfully"}
 
 
 # ========== ADMIN ROUTES ==========

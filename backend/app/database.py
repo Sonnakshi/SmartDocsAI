@@ -13,3 +13,4 @@ db = client[DB_NAME]
 
 users_collection = db["users"]
 documents_collection = db["documents"]
+chats_collection = db["chats"]  # Stores document-scoped chat threads
