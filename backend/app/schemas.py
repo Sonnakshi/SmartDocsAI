@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 # ========== USERS ==========
 
+
 class UserBase(BaseModel):
     email: EmailStr
     full_name: Optional[str] = None
@@ -32,6 +33,7 @@ class UserUpdate(BaseModel):
 
 # ========== AUTH ==========
 
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
@@ -54,10 +56,10 @@ class AccessTokenResponse(BaseModel):
 
 # ========== DOCUMENTS ==========
 
+
 class DocumentResponse(BaseModel):
     id: str
     filename: str
-    stored_filename: str
     file_type: str
     owner_id: str
     size_bytes: int
@@ -66,12 +68,13 @@ class DocumentResponse(BaseModel):
     chunk_count: int
     uploaded_at: datetime
     download_url: str
+    file_url: str        # S3 URL (public or presigned)
+    s3_key: str          # S3 object key for deletion
 
 
 class DocumentListResponse(BaseModel):
     id: str
     filename: str
-    stored_filename: str
     file_type: str
     owner_id: str
     size_bytes: int
@@ -80,6 +83,8 @@ class DocumentListResponse(BaseModel):
     chunk_count: int
     uploaded_at: datetime
     download_url: str
+    file_url: str
+    s3_key: str
 
 
 class DocumentSearchRequest(BaseModel):

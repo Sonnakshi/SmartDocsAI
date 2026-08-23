@@ -1,13 +1,12 @@
 from datetime import datetime, timezone
 from io import BytesIO
-from pathlib import Path
 from typing import List, Optional
 import uuid
 
 from bson import ObjectId
 from docx import Document as DocxDocument
 from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from pypdf import PdfReader
@@ -40,6 +39,12 @@ from app.vector_db import (
     search_document_chunks,
     delete_document_chunks,
 )
+from app.s3_storage import (
+    upload_file_to_s3,
+    delete_file_from_s3,
+    get_file_stream_from_s3,
+)
+
 
 tags_metadata = [
     {"name": "System", "description": "System health and root endpoints."},
@@ -49,6 +54,7 @@ tags_metadata = [
     {"name": "Admin", "description": "Admin-only endpoints."},
 ]
 
+
 app = FastAPI(
     title="SmartDocs AI API",
     description="APIs for authentication, token refresh, user profile management, document upload and processing, and admin-protected user listing.",
@@ -56,11 +62,11 @@ app = FastAPI(
     openapi_tags=tags_metadata,
 )
 
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
+
 ALLOWED_EXTENSIONS = {".pdf", ".txt", ".docx"}
-UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_file_extension(filename: str) -> str:
@@ -105,7 +111,6 @@ def build_document_response(doc: dict) -> DocumentResponse:
     return DocumentResponse(
         id=document_id,
         filename=doc["filename"],
-        stored_filename=doc["stored_filename"],
         file_type=doc["file_type"],
         owner_id=doc["owner_id"],
         size_bytes=doc["size_bytes"],
@@ -114,6 +119,8 @@ def build_document_response(doc: dict) -> DocumentResponse:
         chunk_count=doc.get("chunk_count", 0),
         uploaded_at=doc["uploaded_at"],
         download_url=f"/documents/{document_id}/download",
+        file_url=doc["file_url"],
+        s3_key=doc["s3_key"],
     )
 
 
@@ -122,7 +129,6 @@ def build_document_list_response(doc: dict) -> DocumentListResponse:
     return DocumentListResponse(
         id=document_id,
         filename=doc["filename"],
-        stored_filename=doc["stored_filename"],
         file_type=doc["file_type"],
         owner_id=doc["owner_id"],
         size_bytes=doc["size_bytes"],
@@ -131,6 +137,8 @@ def build_document_list_response(doc: dict) -> DocumentListResponse:
         chunk_count=doc.get("chunk_count", 0),
         uploaded_at=doc["uploaded_at"],
         download_url=f"/documents/{document_id}/download",
+        file_url=doc["file_url"],
+        s3_key=doc["s3_key"],
     )
 
 
@@ -380,26 +388,25 @@ async def upload_document(
             detail="Could not extract any text from the uploaded file",
         )
 
-    stored_filename = f"{uuid.uuid4().hex}{extension}"
-    file_path = UPLOAD_DIR / stored_filename
-
-    with open(file_path, "wb") as out_file:
-        out_file.write(content)
+    s3_info = upload_file_to_s3(content, file.filename, file.content_type)
+    file_url = s3_info["url"]
+    size_bytes = s3_info["size"]
+    s3_key = s3_info["key"]
 
     chunks = chunk_text(extracted_text)
     chunk_count = len([chunk for chunk in chunks if chunk.strip()])
 
     document_data = {
         "filename": file.filename,
-        "stored_filename": stored_filename,
-        "file_path": str(file_path),
         "file_type": extension.replace(".", ""),
         "owner_id": current_user.id,
-        "size_bytes": len(content),
+        "size_bytes": size_bytes,
         "word_count": len(extracted_text.split()),
         "character_count": len(extracted_text),
         "chunk_count": chunk_count,
         "uploaded_at": datetime.now(timezone.utc),
+        "file_url": file_url,
+        "s3_key": s3_key,
     }
 
     result = await documents_collection.insert_one(document_data)
@@ -470,7 +477,7 @@ async def get_document(
     "/documents/{document_id}/download",
     tags=["Documents"],
     summary="Download document",
-    description="Download the stored file as an attachment. This route is protected and requires authentication.",
+    description="Stream the file directly from S3. Click 'Download file' in Swagger UI to save it.",
 )
 async def download_document(
     document_id: str,
@@ -485,15 +492,22 @@ async def download_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    file_path = Path(document["file_path"])
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Stored file not found")
+    s3_key = document.get("s3_key")
+    filename = document.get("filename", "downloaded_file")
 
-    return FileResponse(
-        path=str(file_path),
-        media_type=get_media_type(document["file_type"]),
-        filename=document["filename"],
-        headers={"Content-Disposition": f'attachment; filename="{document["filename"]}"'},
+    file_stream, content_type = get_file_stream_from_s3(s3_key)
+    if file_stream is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve file from S3",
+        )
+
+    return StreamingResponse(
+        file_stream,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
     )
 
 
@@ -547,9 +561,9 @@ async def delete_document(
         owner_id=current_user.id,
     )
 
-    file_path = Path(document["file_path"])
-    if file_path.exists():
-        file_path.unlink()
+    s3_key = document.get("s3_key")
+    if s3_key:
+        delete_file_from_s3(s3_key)
 
     return {"message": "Document deleted successfully"}
 
