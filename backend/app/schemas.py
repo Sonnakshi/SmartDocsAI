@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -87,7 +87,7 @@ class DocumentListResponse(BaseModel):
     s3_key: str
 
 
-# ========== SEARCH (WEEK 5) ==========
+# ========== SEARCH ==========
 
 
 class DocumentSearchRequest(BaseModel):
@@ -122,3 +122,45 @@ class DocumentSearchResult(BaseModel):
     file_type: str
     chunk_index: int
     text: str
+
+
+# ========== RAG & AI CHAT ==========
+
+
+class Citation(BaseModel):
+    document_id: str
+    filename: str
+    chunk_index: int
+    score: float
+    snippet: str
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(
+        ...,
+        min_length=2,
+        description="User's question to ask the AI about the documents",
+    )
+    document_id: Optional[str] = Field(
+        default=None,
+        description="Optional: Search inside a specific document only. Leave empty/null to search across all documents.",
+    )
+    top_k: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        description="Number of most relevant context chunks to retrieve for the LLM",
+    )
+    min_score: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description="Minimum similarity score threshold to filter out irrelevant chunks",
+    )
+
+
+class ChatResponse(BaseModel):
+    question: str
+    answer: str
+    citations: List[Citation]
+    model_used: str

@@ -22,6 +22,8 @@ from app.schemas import (
     DocumentListResponse,
     DocumentSearchRequest,
     DocumentSearchResult,
+    ChatRequest,
+    ChatResponse,
 )
 from app.database import users_collection, documents_collection
 from app.security import (
@@ -44,6 +46,7 @@ from app.s3_storage import (
     delete_file_from_s3,
     get_file_stream_from_s3,
 )
+from app.rag_service import generate_rag_answer
 
 
 tags_metadata = [
@@ -51,13 +54,14 @@ tags_metadata = [
     {"name": "Authentication", "description": "User registration, login, and token refresh endpoints."},
     {"name": "Users", "description": "Endpoints for the currently authenticated user profile."},
     {"name": "Documents", "description": "Upload, list, download, search, and delete documents."},
+    {"name": "AI Chat", "description": "Ask questions about your documents using AI (RAG)."},
     {"name": "Admin", "description": "Admin-only endpoints."},
 ]
 
 
 app = FastAPI(
     title="SmartDocs AI API",
-    description="APIs for authentication, token refresh, user profile management, document upload and processing, and admin-protected user listing.",
+    description="APIs for authentication, token refresh, user profile management, document upload and processing, semantic search, AI chat (RAG), and admin management.",
     version="1.0.0",
     openapi_tags=tags_metadata,
 )
@@ -152,6 +156,9 @@ def get_media_type(file_type: str) -> str:
     return "application/octet-stream"
 
 
+# ========== SYSTEM ROUTES ==========
+
+
 @app.get(
     "/",
     tags=["System"],
@@ -170,6 +177,9 @@ def read_root():
 )
 def health_check():
     return {"status": "ok"}
+
+
+# ========== AUTHENTICATION ROUTES ==========
 
 
 @app.post(
@@ -311,6 +321,9 @@ def get_current_admin(current_user: UserResponse = Depends(get_current_user)) ->
     return current_user
 
 
+# ========== USER PROFILE ROUTES ==========
+
+
 @app.get(
     "/me",
     response_model=UserResponse,
@@ -354,6 +367,9 @@ async def update_me(
         full_name=user.get("full_name"),
         role=user.get("role", "user"),
     )
+
+
+# ========== DOCUMENT ROUTES ==========
 
 
 @app.post(
@@ -511,7 +527,7 @@ async def download_document(
     )
 
 
-# ========== WEEK 5: SEMANTIC SEARCH ROUTE ==========
+# ========== SEMANTIC SEARCH ROUTE ==========
 
 
 @app.post(
@@ -571,6 +587,30 @@ async def delete_document(
         delete_file_from_s3(s3_key)
 
     return {"message": "Document deleted successfully"}
+
+
+# ==========AI CHAT (RAG) ROUTE==========
+
+
+@app.post(
+    "/chat",
+    response_model=ChatResponse,
+    tags=["AI Chat"],
+    summary="Ask questions about your documents (RAG)",
+    description="Ask any question in natural language. The AI will retrieve the most relevant paragraphs from your uploaded documents and generate a grounded answer with citations.",
+)
+async def chat_with_documents(
+    request: ChatRequest,
+    current_user: UserResponse = Depends(get_current_user),
+):
+    response = generate_rag_answer(
+        question=request.question,
+        owner_id=current_user.id,
+        document_id=request.document_id,
+        top_k=request.top_k,
+        min_score=request.min_score,
+    )
+    return response
 
 
 # ========== ADMIN ROUTES ==========
