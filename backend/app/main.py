@@ -146,16 +146,6 @@ def build_document_list_response(doc: dict) -> DocumentListResponse:
     )
 
 
-def get_media_type(file_type: str) -> str:
-    if file_type == "pdf":
-        return "application/pdf"
-    if file_type == "txt":
-        return "text/plain; charset=utf-8"
-    if file_type == "docx":
-        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    return "application/octet-stream"
-
-
 # ========== SYSTEM ROUTES ==========
 
 
@@ -589,7 +579,7 @@ async def delete_document(
     return {"message": "Document deleted successfully"}
 
 
-# ==========AI CHAT (RAG) ROUTE==========
+# ========== AI CHAT (RAG) ROUTE ==========
 
 
 @app.post(
@@ -597,7 +587,7 @@ async def delete_document(
     response_model=ChatResponse,
     tags=["AI Chat"],
     summary="Ask questions about your documents (RAG)",
-    description="Ask any question in natural language. The AI will retrieve the most relevant paragraphs from your uploaded documents and generate a grounded answer with citations.",
+    description="Ask any question in natural language with multi-turn conversational memory and grounded source citations.",
 )
 async def chat_with_documents(
     request: ChatRequest,
@@ -609,6 +599,7 @@ async def chat_with_documents(
         document_id=request.document_id,
         top_k=request.top_k,
         min_score=request.min_score,
+        chat_history=request.chat_history,
     )
     return response
 

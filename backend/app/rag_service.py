@@ -1,5 +1,6 @@
 import os
-from typing import Optional, List
+import re
+from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 from fastapi import HTTPException
 from groq import Groq
@@ -11,18 +12,33 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-SYSTEM_PROMPT = """You are SmartDocs AI, an expert, in-depth document analysis assistant.
+SYSTEM_PROMPT = """You are SmartDocs AI, an expert, in-depth document analysis assistant with conversational memory.
 
-Your task is to provide comprehensive, detailed, and insightful answers to the user's questions using the provided document context chunks below.
+Your task is to provide comprehensive, detailed, and insightful answers to the user's questions using the provided document context chunks and recent conversation history.
 
 Rules:
-1. Ground your answer thoroughly in the provided context.
-2. Explain concepts deeply and clearly with structure, elaboration, and relevant examples from the text.
-3. If the context does not contain enough information to answer the question, state clearly: "I cannot find sufficient information in the provided documents to answer that."
+1. Ground your answers thoroughly in the provided document context and prior conversational context.
+2. If the user asks for summaries, shortening, reformatting, or follow-up explanations on previous answers, use the recent conversation history to fulfill their request while keeping all facts grounded.
+3. If the context does not contain enough information to answer a new question, state clearly: "I cannot find sufficient information in the provided documents to answer that."
 4. Do not invent facts or extrapolate beyond what the context supports.
-5. Provide in-depth explanations covering all parts of the user's question, using bullet points and headings where appropriate.
-6. Reference sources (e.g., [Source 1], [Source 2]) to support key points.
+5. Provide structured answers with bullet points and headings where appropriate.
+6. Reference sources (e.g., [Source 1], [Source 2]) when citing facts from retrieved documents.
+7. For mathematical formulas, equations, or scientific notation, ALWAYS use standard dollar signs:
+   - Use $formula$ for inline math (e.g. $\ln(x)$, $x^2 + y^2 = r^2$, $\log_{10}(5)$).
+   - Use $$formula$$ on its own line for block equations.
+   - Do NOT use \\( or \\) notation or <br> tags.
 """
+
+
+def format_latex_math(text: str) -> str:
+    """Auto-converts any raw LaTeX \( ... \) or \[ ... \] into standard $ ... $ and $$ ... $$."""
+    # Convert \[ ... \] to $$ ... $$
+    text = re.sub(r'\\\[(.*?)\\\]', r'$$\1$$', text, flags=re.DOTALL)
+    # Convert \( ... \) to $ ... $
+    text = re.sub(r'\\\((.*?)\\\)', r'$\1$', text, flags=re.DOTALL)
+    # Clean up accidental unrendered <br> tags
+    text = text.replace("<br>", "\n")
+    return text
 
 
 def get_active_model(client: Groq) -> str:
@@ -37,9 +53,9 @@ def get_active_model(client: Groq) -> str:
         ]
 
         priority_list = [
+            "openai/gpt-oss-120b",
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
-            "openai/gpt-oss-120b",
             "llama3-8b-8192",
             "llama3-70b-8192",
             "mixtral-8x7b-32768",
@@ -55,17 +71,37 @@ def get_active_model(client: Groq) -> str:
         return "llama3-8b-8192"
 
 
-def decompose_query(question: str, client: Groq, model: str) -> List[str]:
-    """Breaks complex, multi-part questions into 1-3 distinct search sub-queries."""
-    try:
-        decomposition_prompt = f"""Break down the following user question into 1 to 3 distinct, concise search queries for retrieving relevant paragraphs from a vector database.
+def contextualize_and_decompose_query(
+    question: str,
+    chat_history: Optional[List[Dict[str, Any]]],
+    client: Groq,
+    model: str,
+) -> List[str]:
+    """Rewrites follow-up questions into standalone search queries using chat history."""
+    if not chat_history:
+        prompt = f"""Break down the following user question into 1 to 3 distinct, concise search queries for retrieving relevant paragraphs from a vector database.
 Output ONLY the search queries, one per line. Do not number them.
 
 Question: {question}"""
+    else:
+        history_snippet = "\n".join(
+            f"{msg.get('role', 'user')}: {msg.get('content', '')[:300]}"
+            for msg in chat_history[-4:]
+        )
+        prompt = f"""Given the following recent conversation history and a follow-up user request, rewrite the request into 1 to 3 standalone search queries that capture the main topic for vector search.
+If the request is an instruction like "make this shorter in 200 words" or "summarize that", identify the underlying subject being discussed.
 
+Conversation History:
+{history_snippet}
+
+Follow-up Request: {question}
+
+Output ONLY the search queries, one per line. Do not number them:"""
+
+    try:
         completion = client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": decomposition_prompt}],
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
             max_tokens=150,
         )
@@ -82,6 +118,7 @@ def generate_rag_answer(
     document_id: Optional[str] = None,
     top_k: int = 6,
     min_score: float = 0.20,
+    chat_history: Optional[List[Dict[str, Any]]] = None,
 ) -> ChatResponse:
     if not GROQ_API_KEY:
         raise HTTPException(
@@ -92,12 +129,11 @@ def generate_rag_answer(
     client = Groq(api_key=GROQ_API_KEY)
     model_to_use = get_active_model(client)
 
-    # 1. Multi-Query Decomposition: Break complex questions into sub-queries
-    sub_queries = decompose_query(question, client, model_to_use)
+    # 1. Query Contextualization & Multi-Query Search
+    sub_queries = contextualize_and_decompose_query(question, chat_history, client, model_to_use)
     if question not in sub_queries:
         sub_queries.append(question)
 
-    # 2. Retrieve chunks for all sub-queries and deduplicate
     seen_chunk_keys = set()
     all_matching_chunks = []
 
@@ -115,11 +151,10 @@ def generate_rag_answer(
                 seen_chunk_keys.add(chunk_key)
                 all_matching_chunks.append(chunk)
 
-    # Sort all retrieved chunks by highest relevance score and keep top_k * 2
     all_matching_chunks.sort(key=lambda x: x.get("score", 0), reverse=True)
     all_matching_chunks = all_matching_chunks[: max(top_k, 8)]
 
-    # 3. Build Citations & Context Blocks
+    # 2. Build Citations & Context Blocks
     citations: List[Citation] = []
     context_blocks: List[str] = []
 
@@ -137,34 +172,40 @@ def generate_rag_answer(
             f"[Source {idx}] (File: {chunk['filename']}, Chunk #{chunk['chunk_index']}):\n{chunk['text']}"
         )
 
-    # 4. Assemble Prompt
-    if not all_matching_chunks:
-        context_text = "No relevant document chunks found in the user's uploaded files."
-    else:
-        context_text = "\n\n---\n\n".join(context_blocks)
+    context_text = "\n\n---\n\n".join(context_blocks) if context_blocks else "No relevant document chunks found."
 
-    user_prompt = f"""DOCUMENT CONTEXT:
+    # 3. Assemble Multi-Turn Conversation Messages
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    if chat_history:
+        for prev_msg in chat_history[-6:]:
+            role = prev_msg.get("role", "user")
+            content = prev_msg.get("content", "")
+            if content.strip():
+                messages.append({"role": role, "content": content})
+
+    current_prompt = f"""DOCUMENT CONTEXT:
 {context_text}
 
 ---
 
-USER QUESTION:
+USER REQUEST:
 {question}
 
-IN-DEPTH ANSWER:"""
+ANSWER:"""
+    messages.append({"role": "user", "content": current_prompt})
 
-    # 5. Call Groq Cloud LLM for in-depth answer
+    # 4. Generate Answer with Groq LLM
     try:
         chat_completion = client.chat.completions.create(
             model=model_to_use,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.3,
+            messages=messages,
+            temperature=0.2,
             max_tokens=1500,
         )
-        generated_answer = chat_completion.choices[0].message.content or ""
+        raw_answer = chat_completion.choices[0].message.content or ""
+        # Auto-format LaTeX for Streamlit rendering
+        formatted_answer = format_latex_math(raw_answer)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -173,7 +214,7 @@ IN-DEPTH ANSWER:"""
 
     return ChatResponse(
         question=question,
-        answer=generated_answer.strip(),
+        answer=formatted_answer.strip(),
         citations=citations,
         model_used=model_to_use,
     )

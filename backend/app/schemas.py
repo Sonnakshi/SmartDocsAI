@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -138,7 +138,7 @@ class Citation(BaseModel):
 class ChatRequest(BaseModel):
     question: str = Field(
         ...,
-        min_length=2,
+        min_length=1,
         description="User's question to ask the AI about the documents",
     )
     document_id: Optional[str] = Field(
@@ -148,14 +148,18 @@ class ChatRequest(BaseModel):
     top_k: int = Field(
         default=4,
         ge=1,
-        le=10,
+        le=15,
         description="Number of most relevant context chunks to retrieve for the LLM",
     )
     min_score: float = Field(
-        default=0.25,
+        default=0.20,
         ge=0.0,
         le=1.0,
         description="Minimum similarity score threshold to filter out irrelevant chunks",
+    )
+    chat_history: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Recent conversation history messages to enable conversational memory (e.g. [{'role': 'user', 'content': '...'}])",
     )
 
 
