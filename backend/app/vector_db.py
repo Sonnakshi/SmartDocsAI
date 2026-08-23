@@ -1,5 +1,6 @@
 import os
 import uuid
+from typing import Optional
 
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
@@ -92,24 +93,42 @@ def store_document_chunks(
 def search_document_chunks(
     query: str,
     owner_id: str,
+    document_id: Optional[str] = None,
     limit: int = 5,
+    min_score: float = 0.3,
 ) -> list[dict]:
     ensure_qdrant_collection()
     query_vector = generate_query_embedding(query)
+
+    # 1. Base filter: Always restrict to documents owned by the current user
+    must_conditions = [
+        FieldCondition(
+            key="owner_id",
+            match=MatchValue(value=owner_id),
+        )
+    ]
+
+    # 2. Smart filter: If a real document_id is provided, search inside that document only.
+    # If it's None, empty, or Swagger's placeholder "string", search across ALL documents.
+    if (
+        document_id
+        and document_id.strip()
+        and document_id.strip().lower() not in ("string", "null", "none", "")
+    ):
+        must_conditions.append(
+            FieldCondition(
+                key="document_id",
+                match=MatchValue(value=document_id.strip()),
+            )
+        )
 
     search_result = qdrant_client.query_points(
         collection_name=QDRANT_COLLECTION_NAME,
         query=query_vector,
         limit=limit,
+        score_threshold=min_score,
         with_payload=True,
-        query_filter=Filter(
-            must=[
-                FieldCondition(
-                    key="owner_id",
-                    match=MatchValue(value=owner_id),
-                )
-            ]
-        ),
+        query_filter=Filter(must=must_conditions),
     )
 
     results = search_result.points if hasattr(search_result, "points") else search_result
@@ -119,7 +138,8 @@ def search_document_chunks(
         payload = result.payload or {}
         formatted_results.append(
             {
-                "score": result.score,
+                "chunk_id": str(result.id),
+                "score": round(result.score, 4),
                 "document_id": payload.get("document_id", ""),
                 "filename": payload.get("filename", ""),
                 "file_type": payload.get("file_type", ""),

@@ -511,12 +511,15 @@ async def download_document(
     )
 
 
+# ========== WEEK 5: SEMANTIC SEARCH ROUTE ==========
+
+
 @app.post(
     "/documents/search",
     response_model=List[DocumentSearchResult],
     tags=["Documents"],
     summary="Search document chunks",
-    description="Search semantically across indexed document chunks in Qdrant.",
+    description="Search semantically across indexed document chunks in Qdrant with optional document filtering, top-K ranking, and similarity score threshold.",
 )
 async def search_documents(
     request: DocumentSearchRequest,
@@ -525,7 +528,9 @@ async def search_documents(
     results = search_document_chunks(
         query=request.query,
         owner_id=current_user.id,
+        document_id=request.document_id,
         limit=request.limit,
+        min_score=request.min_score,
     )
     return results
 
@@ -566,6 +571,9 @@ async def delete_document(
         delete_file_from_s3(s3_key)
 
     return {"message": "Document deleted successfully"}
+
+
+# ========== ADMIN ROUTES ==========
 
 
 @app.get(

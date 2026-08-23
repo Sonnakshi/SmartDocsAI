@@ -87,21 +87,35 @@ class DocumentListResponse(BaseModel):
     s3_key: str
 
 
+# ========== SEARCH (WEEK 5) ==========
+
+
 class DocumentSearchRequest(BaseModel):
     query: str = Field(
         ...,
         min_length=1,
         description="Natural language query for semantic search",
     )
+    document_id: Optional[str] = Field(
+        default=None,
+        description="Optional: Search inside a specific document only",
+    )
     limit: int = Field(
         default=5,
         ge=1,
         le=20,
-        description="Maximum number of matching chunks to return",
+        description="Maximum number of matching chunks to return (Top-K)",
+    )
+    min_score: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Minimum cosine similarity threshold to filter irrelevant chunks",
     )
 
 
 class DocumentSearchResult(BaseModel):
+    chunk_id: Optional[str] = None
     score: float
     document_id: str
     filename: str
