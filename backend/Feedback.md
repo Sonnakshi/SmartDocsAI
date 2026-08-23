@@ -14,5 +14,5 @@
 
 
 # preview(auth) and download files-no need for entire text in mongodb     done
-# embeddings?  
+# embeddings?   done
 # why uploads on my laptop   ->used AWS S3 Bucket   done
