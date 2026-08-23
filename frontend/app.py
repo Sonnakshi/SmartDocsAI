@@ -213,18 +213,19 @@ with st.sidebar:
         st.session_state.user = None
         st.session_state.messages = []
         st.session_state.documents = []
+        st.session_state.current_scope_key = None
         st.rerun()
 
 
 # ==========================================
-# 1. AI ASSISTANT (CHAT, IN-CHAT UPLOAD & MEMORY)
+# 1. AI ASSISTANT (CHAT, IN-CHAT UPLOAD & PERSISTENT THREADS)
 # ==========================================
 if nav_selection == "AI Assistant":
     st.markdown(
         """
         <div class='app-header'>
             <div class='app-title'>AI Document Assistant</div>
-            <div class='app-subtitle'>Ask questions across documents with conversational memory and source verification.</div>
+            <div class='app-subtitle'>Document Intelligence with Persistent Scoped Threads & Source Verification</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -235,14 +236,28 @@ if nav_selection == "AI Assistant":
     for doc in st.session_state.documents:
         doc_map[f"{doc['filename']} ({doc['chunk_count']} chunks)"] = doc["id"]
 
-    # Toolbar with In-Chat Quick Upload & Filters
+    # Toolbar with In-Chat Quick Upload & Thread Controls
     with st.container(border=True):
         col_scope, col_quick_up, col_clear = st.columns([3, 2, 1])
-        
+
         with col_scope:
-            selected_label = st.selectbox("Document Filter Scope:", options=list(doc_map.keys()))
+            selected_label = st.selectbox(
+                "Document Filter Scope:",
+                options=list(doc_map.keys()),
+                key="doc_scope_select",
+            )
             selected_doc_id = doc_map[selected_label]
-            
+            scope_key = selected_doc_id if selected_doc_id else "all"
+
+            # Auto-load thread history from MongoDB when document selection changes
+            if "current_scope_key" not in st.session_state or st.session_state.current_scope_key != scope_key:
+                st.session_state.current_scope_key = scope_key
+                hist_res = api.get_thread_history(scope_key, st.session_state.token)
+                if hist_res.status_code == 200:
+                    st.session_state.messages = hist_res.json()
+                else:
+                    st.session_state.messages = []
+
         with col_quick_up:
             with st.popover("Upload Document to Chat", use_container_width=True):
                 quick_file = st.file_uploader("Upload PDF, TXT, or DOCX", type=["pdf", "txt", "docx"], key="quick_up")
@@ -256,17 +271,18 @@ if nav_selection == "AI Assistant":
                                 st.rerun()
                             else:
                                 st.error("Upload failed.")
-                                
+
         with col_clear:
             st.write("")
             st.write("")
-            if st.button("Clear History", use_container_width=True):
+            if st.button("Clear Thread", use_container_width=True):
+                api.clear_thread_history(scope_key, st.session_state.token)
                 st.session_state.messages = []
                 st.rerun()
 
     # Chat Stream
     if not st.session_state.messages:
-        st.info("Ask any question regarding your documents. You can also ask follow-up questions (e.g. 'make this shorter', 'compare that').")
+        st.info("Start a conversation about this document. Your chat history for this file will be automatically saved.")
 
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
@@ -283,16 +299,14 @@ if nav_selection == "AI Assistant":
                         st.markdown(f"<div class='citation-box'>\"{c['snippet']}\"</div>", unsafe_allow_html=True)
                         st.write("")
 
-    # Chat Input
+    # Chat Input Box
     if user_prompt := st.chat_input("Type your question or follow-up here..."):
-        # Display User message
         st.session_state.messages.append({"role": "user", "content": user_prompt})
         with st.chat_message("user"):
             st.markdown(user_prompt)
 
         with st.chat_message("assistant"):
             with st.spinner("Analyzing context & synthesizing answer..."):
-                # Send previous messages as conversation history
                 history_to_send = st.session_state.messages[:-1]
 
                 response = api.chat(

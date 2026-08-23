@@ -97,6 +97,16 @@ class SmartDocsAPIClient:
 
         return requests.post(url, json=payload, headers=self._get_headers(token))
 
+    # ========== PERSISTENT CHAT THREADS ==========
+
+    def get_thread_history(self, scope_id: str, token: str) -> requests.Response:
+        url = f"{self.base_url}/chats/{scope_id}"
+        return requests.get(url, headers=self._get_headers(token))
+
+    def clear_thread_history(self, scope_id: str, token: str) -> requests.Response:
+        url = f"{self.base_url}/chats/{scope_id}/clear"
+        return requests.post(url, headers=self._get_headers(token))
+
     # ========== ADMIN ==========
 
     def list_all_users(self, token: str) -> requests.Response:
