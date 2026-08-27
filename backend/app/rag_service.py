@@ -27,6 +27,8 @@ Rules:
    - Use $formula$ for inline math (e.g. $\ln(x)$, $x^2 + y^2 = r^2$, $\log_{10}(5)$).
    - Use $$formula$$ on its own line for block equations.
    - Do NOT use \\( or \\) notation or <br> tags.
+8. If the user asks to "plot a graph", "visualize", "show a chart", or illustrate mathematical equations/distributions visually, generate executable Python code using `matplotlib.pyplot` inside a ```python ``` block. Ensure code sets labels, title, grid, and uses `plt.plot()`. Do not call `plt.show()`.
+9. If the user asks to "generate an image", "create a photo", "draw", or "show an illustration" of a scene, character, or concept from the document, provide a descriptive image prompt formatted strictly as: [IMAGE_PROMPT: detailed visual description of the scene or subject].
 """
 
 
