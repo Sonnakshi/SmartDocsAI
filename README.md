@@ -16,41 +16,39 @@ Featuring **dynamic mathematical graph generation**, **AI text-to-image synthesi
 ---
 
 ## 🏛️ System Architecture
-                            ┌─────────────────────────────────────────┐
-                              │      Streamlit Frontend (Port 8501)     │
-                              │  • Auto-Theme Dark/Light UI             │
-                              │  • Dynamic Matplotlib Plot Renderer     │
-                              │  • AI Image Diffusion Viewer            │
-                              │  • 1-Click PDF / DOCX / TXT Exporter    │
-                              └────────────────────┬────────────────────┘
-                                                   │ HTTP / REST
-                                                   ▼
-                              ┌─────────────────────────────────────────┐
-                              │       FastAPI Backend (Port 8000)       │
-                              │  • JWT Auth & Dynamic RBAC Hierarchy    │
-                              │  • Query Contextualization & Multi-Query│
-                              │  • Document Ingestion & Chunking Engine │
-                              └──────┬─────────────┬─────────────┬──────┘
-                                     │             │             │
-                ┌────────────────────┘             │             └───────────────────┐
-                ▼                                  ▼                                 ▼
-  ┌───────────────────────────┐      ┌───────────────────────────┐     ┌───────────────────────────┐
-  │     AWS S3 Storage        │      │    Qdrant Vector DB       │     │     MongoDB Atlas         │
-  │  • Original PDF/DOCX Docs │      │  • all-MiniLM-L6-v2 Embed │     │  • User Auth & Roles      │
-  │  • Streamed File Downloads│      │  • HNSW Cosine Indexing   │     │  • Document Metadata      │
-  │                           │      │  • Sub-25ms Top-K Search  │     │  • Scoped Chat Histories  │
-  └───────────────────────────┘      └─────────────┬─────────────┘     └───────────────────────────┘
-                                                   │ Top-K Chunks
-                                                   ▼
-                                     ┌───────────────────────────┐
-                                     │      Groq LPU Engine      │
-                                     │  • Ultra-fast LLM (450+t/s)│
-                                     │  • Grounded Source Citations│
-                                     │  • Multi-Turn Memory Synthesis│
-                                     └───────────────────────────┘
 
+```mermaid
+flowchart TD
+    subgraph Frontend["🖥️ Frontend (Streamlit - Port 8501)"]
+        UI1["Auto-Theme UI (Dark / Light Mode)"]
+        UI2["Dynamic Matplotlib Graph Plotter"]
+        UI3["AI Image Diffusion Synthesis"]
+        UI4["1-Click PDF / DOCX / TXT Exporter"]
+    end
 
----
+    subgraph Backend["⚡ Backend API (FastAPI - Port 8000)"]
+        API1["JWT Auth & Dynamic Seniority RBAC"]
+        API2["Query Contextualizer & Multi-Query Search"]
+        API3["Document Ingestion & Chunking Engine"]
+    end
+
+    subgraph Services["🗄️ Storage, Vector & Database Layer"]
+        S3["📦 AWS S3<br/>(Original Document Storage)"]
+        Qdrant["🔴 Qdrant Vector DB<br/>(all-MiniLM-L6-v2 Cosine Embeddings)"]
+        Mongo["🍃 MongoDB Atlas<br/>(User Roles & Scoped Chat Histories)"]
+    end
+
+    subgraph AI["🧠 Generative AI Engine"]
+        Groq["⚡ Groq LPU Inference<br/>(450+ tokens/sec | Llama 3.3 RAG)"]
+    end
+
+    Frontend -->|HTTP / REST API| Backend
+    Backend --> S3
+    Backend --> Qdrant
+    Backend --> Mongo
+    Qdrant -->|Top-K Context Chunks| Groq
+    Groq -->|Synthesized Grounded Response| Backend
+```
 
 ## ✨ Key Features & Engineering Highlights
 
