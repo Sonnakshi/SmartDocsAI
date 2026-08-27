@@ -156,7 +156,11 @@ if not st.session_state.token:
                                 refresh_documents()
                                 st.rerun()
                             else:
-                                st.error(res.json().get("detail", "Invalid credentials."))
+                                try:
+                                    err_msg = res.json().get("detail", "Invalid credentials.")
+                                except Exception:
+                                    err_msg = "Invalid credentials."
+                                st.error(err_msg)
 
             with tab_signup:
                 st.write("")
@@ -173,7 +177,11 @@ if not st.session_state.token:
                             if res.status_code == 201:
                                 st.success("Account created. You can now sign in.")
                             else:
-                                st.error(res.json().get("detail", "Registration failed."))
+                                try:
+                                    err_msg = res.json().get("detail", "Registration failed.")
+                                except Exception:
+                                    err_msg = "Registration failed."
+                                st.error(err_msg)
 
     st.stop()
 
@@ -342,7 +350,10 @@ if nav_selection == "AI Assistant":
                         }
                     )
                 else:
-                    err = response.json().get("detail", "Error generating response.")
+                    try:
+                        err = response.json().get("detail", response.text or "Error generating response.")
+                    except Exception:
+                        err = response.text or f"Server returned HTTP {response.status_code}"
                     st.error(f"Error: {err}")
 
 
@@ -479,7 +490,45 @@ elif nav_selection == "Account Settings":
     if st.session_state.user.get("role") == "admin":
         st.divider()
         st.subheader("User Registry (Admin Access)")
-        st.caption("Registered platform users in MongoDB.")
+        st.caption("Manage registered platform users and permission levels.")
+
         users_res = api.list_all_users(st.session_state.token)
         if users_res.status_code == 200:
-            st.dataframe(users_res.json(), use_container_width=True)
+            users_list = users_res.json()
+            my_id = st.session_state.user.get("id")
+
+            for u in users_list:
+                with st.container(border=True):
+                    col_uinfo, col_urole, col_uaction = st.columns([3, 1.2, 1.2])
+
+                    with col_uinfo:
+                        st.markdown(f"**{u['email']}**")
+                        st.caption(f"Name: {u.get('full_name') or 'Not set'} | ID: `{u['id']}`")
+
+                    with col_urole:
+                        role_badge_class = "badge-primary" if u["role"] == "admin" else "badge"
+                        st.markdown(f"<span class='badge {role_badge_class}'>{u['role'].upper()}</span>", unsafe_allow_html=True)
+
+                    with col_uaction:
+                        if u["role"] == "user":
+                            if st.button("Promote to Admin", key=f"role_btn_{u['id']}", type="primary", use_container_width=True):
+                                with st.spinner("Updating role..."):
+                                    up_res = api.update_user_role(u["id"], "admin", st.session_state.token)
+                                    if up_res.status_code == 200:
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to update role.")
+
+                        elif u["role"] == "admin" and u["id"] > my_id:
+                            if st.button("Demote to User", key=f"role_btn_{u['id']}", type="secondary", use_container_width=True):
+                                with st.spinner("Updating role..."):
+                                    up_res = api.update_user_role(u["id"], "user", st.session_state.token)
+                                    if up_res.status_code == 200:
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to update role.")
+
+                        else:
+                            st.write("")
+        else:
+            st.warning("Could not load user list.")

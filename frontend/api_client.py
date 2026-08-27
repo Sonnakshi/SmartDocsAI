@@ -112,3 +112,8 @@ class SmartDocsAPIClient:
     def list_all_users(self, token: str) -> requests.Response:
         url = f"{self.base_url}/users/"
         return requests.get(url, headers=self._get_headers(token))
+
+    def update_user_role(self, user_id: str, new_role: str, token: str) -> requests.Response:
+        url = f"{self.base_url}/users/{user_id}/role"
+        payload = {"role": new_role}
+        return requests.patch(url, json=payload, headers=self._get_headers(token))
