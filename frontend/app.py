@@ -1,9 +1,17 @@
 import streamlit as st
 import datetime
+import re
 from api_client import SmartDocsAPIClient
+from export_utils import (
+    generate_ai_image,
+    extract_and_render_plots,
+    generate_pdf_export,
+    generate_docx_export,
+    generate_txt_export,
+)
 
 # ==========================================
-# 1. PAGE CONFIG & ENTERPRISE STYLING
+# 1. PAGE CONFIG & AUTO-THEME ADAPTIVE STYLING
 # ==========================================
 st.set_page_config(
     page_title="SmartDocs AI",
@@ -14,34 +22,77 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     
     html, body, [class*="css"] {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
-    
+
+    /* ─── Light Mode Variables (Default) ─── */
+    :root {
+        --app-title-grad: linear-gradient(90deg, #0284c7, #4f46e5);
+        --app-sub-color: #64748b;
+        --card-bg: #ffffff;
+        --card-border: #e2e8f0;
+        --card-text: #0f172a;
+        --cite-bg: #f8fafc;
+        --cite-border: #0284c7;
+        --cite-text: #334155;
+    }
+
+    /* ─── Dark Mode Variables (Automatic Device Detection) ─── */
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --app-title-grad: linear-gradient(90deg, #38bdf8, #818cf8);
+            --app-sub-color: #94a3b8;
+            --card-bg: #1e293b;
+            --card-border: #334155;
+            --card-text: #f8fafc;
+            --cite-bg: #0f172a;
+            --cite-border: #38bdf8;
+            --cite-text: #e2e8f0;
+        }
+    }
+
     /* Header styling */
     .app-header {
         padding-bottom: 1rem;
-        border-bottom: 1px solid #e2e8f0;
+        border-bottom: 1px solid var(--card-border);
         margin-bottom: 1.5rem;
     }
     .app-title {
-        font-size: 1.6rem;
-        font-weight: 700;
-        color: #0f172a;
+        font-size: 1.8rem;
+        font-weight: 800;
+        background: var(--app-title-grad);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
         letter-spacing: -0.02em;
     }
     .app-subtitle {
         font-size: 0.9rem;
-        color: #64748b;
+        color: var(--app-sub-color);
         margin-top: 0.2rem;
     }
 
-    /* Metric Cards */
+    /* Auth Header Title */
+    .auth-title {
+        font-size: 2.2rem;
+        font-weight: 800;
+        background: var(--app-title-grad);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        letter-spacing: -0.02em;
+    }
+    .auth-subtitle {
+        font-size: 0.95rem;
+        color: var(--app-sub-color);
+        margin-top: 0.3rem;
+    }
+
+    /* Stat Cards */
     .stat-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
         border-radius: 8px;
         padding: 1rem 1.2rem;
         box-shadow: 0 1px 2px rgba(0,0,0,0.03);
@@ -49,25 +100,25 @@ st.markdown(
     .stat-value {
         font-size: 1.5rem;
         font-weight: 700;
-        color: #0f172a;
+        color: var(--card-text);
     }
     .stat-label {
         font-size: 0.75rem;
         font-weight: 600;
-        color: #64748b;
+        color: var(--app-sub-color);
         text-transform: uppercase;
         letter-spacing: 0.05em;
     }
 
     /* Source Citation Cards */
     .citation-box {
-        background-color: #f8fafc;
-        border-left: 3px solid #0284c7;
+        background-color: var(--cite-bg);
+        border-left: 3px solid var(--cite-border);
         border-radius: 0 6px 6px 0;
         padding: 0.75rem 1rem;
         margin-top: 0.5rem;
         font-size: 0.85rem;
-        color: #334155;
+        color: var(--cite-text);
     }
 
     /* Badges */
@@ -77,17 +128,20 @@ st.markdown(
         font-size: 0.75rem;
         font-weight: 600;
         border-radius: 4px;
-        background-color: #f1f5f9;
-        color: #334155;
+        background-color: var(--card-bg);
+        border: 1px solid var(--card-border);
+        color: var(--card-text);
         margin-right: 0.4rem;
     }
     .badge-primary {
-        background-color: #e0f2fe;
-        color: #0369a1;
+        background-color: #0284c7;
+        color: #ffffff;
+        border: none;
     }
     .badge-success {
-        background-color: #ecfdf5;
-        color: #047857;
+        background-color: #047857;
+        color: #ffffff;
+        border: none;
     }
     </style>
     """,
@@ -125,9 +179,9 @@ if not st.session_state.token:
     with col2:
         st.markdown(
             """
-            <div style='text-align: center; margin-bottom: 1.5rem;'>
-                <div style='font-size: 1.8rem; font-weight: 700; color: #0f172a;'>SmartDocs AI</div>
-                <div style='color: #64748b; font-size: 0.9rem; margin-top: 0.2rem;'>Document Intelligence & AI Assistant Platform</div>
+            <div style='text-align: center; margin-bottom: 1.8rem;'>
+                <div class='auth-title'>SmartDocs AI</div>
+                <div class='auth-subtitle'>Document Intelligence & AI Assistant Platform</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -226,14 +280,14 @@ with st.sidebar:
 
 
 # ==========================================
-# 1. AI ASSISTANT (CHAT, IN-CHAT UPLOAD & PERSISTENT THREADS)
+# 1. AI ASSISTANT (CHAT, MULTI-MODAL & EXPORT)
 # ==========================================
 if nav_selection == "AI Assistant":
     st.markdown(
         """
         <div class='app-header'>
             <div class='app-title'>AI Document Assistant</div>
-            <div class='app-subtitle'>Document Intelligence with Persistent Scoped Threads & Source Verification</div>
+            <div class='app-subtitle'>Document Intelligence with Dynamic Math Graphs, AI Image Generation & 1-Click Exports</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -290,31 +344,106 @@ if nav_selection == "AI Assistant":
 
     # Chat Stream
     if not st.session_state.messages:
-        st.info("Start a conversation about this document. Your chat history for this file will be automatically saved.")
+        st.info("Ask questions, generate mathematical graphs, create AI image illustrations, or export answers to PDF, Word, and Text.")
 
-    for msg in st.session_state.messages:
+    for idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if "citations" in msg and msg["citations"]:
-                with st.expander(f"Source Verification ({len(msg['citations'])} references)"):
-                    for c in msg["citations"]:
-                        st.markdown(
-                            f"<span class='badge badge-primary'>{c['filename']}</span> "
-                            f"<span class='badge'>Chunk #{c['chunk_index']}</span> "
-                            f"<span class='badge badge-success'>Score: {c['score']:.4f}</span>",
-                            unsafe_allow_html=True,
+            content = msg["content"]
+
+            if msg["role"] == "assistant":
+                # A. Detect and Render AI Image Generation Prompts
+                img_prompt_match = re.search(r"\[IMAGE_PROMPT:\s*(.*?)\]", content)
+                if img_prompt_match:
+                    img_prompt = img_prompt_match.group(1)
+                    with st.spinner("🎨 Generating AI artwork with diffusion model..."):
+                        img_bytes = generate_ai_image(img_prompt)
+                        if img_bytes:
+                            st.image(img_bytes, caption=f"AI Generated Visual: {img_prompt}", use_container_width=True)
+                            st.download_button(
+                                label="📥 Download Generated Image (PNG)",
+                                data=img_bytes,
+                                file_name=f"SmartDocs_Image_{idx}.png",
+                                mime="image/png",
+                                key=f"dl_ai_img_{idx}",
+                            )
+
+                # B. Detect and Render Mathematical Graphs & Charts
+                plot_images = extract_and_render_plots(content)
+                for p_idx, p_bytes in enumerate(plot_images):
+                    st.image(p_bytes, caption="Generated Visual Graph / Chart", use_container_width=True)
+                    st.download_button(
+                        label="📥 Download High-Res Graph (PNG)",
+                        data=p_bytes,
+                        file_name=f"SmartDocs_Plot_{idx}_{p_idx}.png",
+                        mime="image/png",
+                        key=f"dl_plot_{idx}_{p_idx}",
+                    )
+
+            # Display Cleaned Text & LaTeX Formulas
+            display_text = re.sub(r"\[IMAGE_PROMPT:.*?\]", "", content).strip()
+            st.markdown(display_text)
+
+            if msg["role"] == "assistant":
+                citations = msg.get("citations", [])
+
+                # 1. Source Citations
+                if citations:
+                    with st.expander(f"Source Verification ({len(citations)} references)"):
+                        for c in citations:
+                            st.markdown(
+                                f"<span class='badge badge-primary'>{c['filename']}</span> "
+                                f"<span class='badge'>Chunk #{c['chunk_index']}</span> "
+                                f"<span class='badge badge-success'>Score: {c['score']:.4f}</span>",
+                                unsafe_allow_html=True,
+                            )
+                            st.markdown(f"<div class='citation-box'>\"{c['snippet']}\"</div>", unsafe_allow_html=True)
+                            st.write("")
+
+                # 2. One-Click Document Export Toolbar (PDF, DOCX, TXT)
+                with st.expander("📥 Export & Download this Answer"):
+                    c_pdf, c_docx, c_txt = st.columns(3)
+
+                    user_q = st.session_state.messages[idx - 1]["content"] if idx > 0 else "Document Analysis"
+                    pdf_bytes = generate_pdf_export(user_q, display_text, citations)
+                    docx_bytes = generate_docx_export(user_q, display_text, citations)
+                    txt_content = generate_txt_export(user_q, display_text, citations)
+
+                    with c_pdf:
+                        st.download_button(
+                            label="📄 Export as PDF",
+                            data=pdf_bytes,
+                            file_name=f"SmartDocs_Report_{idx}.pdf",
+                            mime="application/pdf",
+                            key=f"exp_pdf_{idx}",
+                            use_container_width=True,
                         )
-                        st.markdown(f"<div class='citation-box'>\"{c['snippet']}\"</div>", unsafe_allow_html=True)
-                        st.write("")
+                    with c_docx:
+                        st.download_button(
+                            label="📝 Export as Word (.docx)",
+                            data=docx_bytes,
+                            file_name=f"SmartDocs_Report_{idx}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key=f"exp_docx_{idx}",
+                            use_container_width=True,
+                        )
+                    with c_txt:
+                        st.download_button(
+                            label="📋 Export as Text (.txt)",
+                            data=txt_content.encode("utf-8"),
+                            file_name=f"SmartDocs_Report_{idx}.txt",
+                            mime="text/plain",
+                            key=f"exp_txt_{idx}",
+                            use_container_width=True,
+                        )
 
     # Chat Input Box
-    if user_prompt := st.chat_input("Type your question or follow-up here..."):
+    if user_prompt := st.chat_input("Type your question, graph request, or image prompt here..."):
         st.session_state.messages.append({"role": "user", "content": user_prompt})
         with st.chat_message("user"):
             st.markdown(user_prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing context & synthesizing answer..."):
+            with st.spinner("Analyzing context & generating multi-modal response..."):
                 history_to_send = st.session_state.messages[:-1]
 
                 response = api.chat(
@@ -328,7 +457,21 @@ if nav_selection == "AI Assistant":
                     answer_text = data["answer"]
                     citations = data.get("citations", [])
 
-                    st.markdown(answer_text)
+                    # Render AI Image if requested
+                    img_prompt_match = re.search(r"\[IMAGE_PROMPT:\s*(.*?)\]", answer_text)
+                    if img_prompt_match:
+                        img_prompt = img_prompt_match.group(1)
+                        img_bytes = generate_ai_image(img_prompt)
+                        if img_bytes:
+                            st.image(img_bytes, caption=f"AI Generated Visual: {img_prompt}", use_container_width=True)
+
+                    # Render Math Plot if requested
+                    plot_images = extract_and_render_plots(answer_text)
+                    for p_bytes in plot_images:
+                        st.image(p_bytes, caption="Generated Visual Graph / Chart", use_container_width=True)
+
+                    display_text = re.sub(r"\[IMAGE_PROMPT:.*?\]", "", answer_text).strip()
+                    st.markdown(display_text)
 
                     if citations:
                         with st.expander(f"Source Verification ({len(citations)} references)"):
@@ -349,6 +492,7 @@ if nav_selection == "AI Assistant":
                             "citations": citations,
                         }
                     )
+                    st.rerun()
                 else:
                     try:
                         err = response.json().get("detail", response.text or "Error generating response.")
@@ -373,7 +517,6 @@ elif nav_selection == "Knowledge Library":
 
     refresh_documents()
 
-    # Metrics Summary
     total_docs = len(st.session_state.documents)
     total_chunks = sum(d.get("chunk_count", 0) for d in st.session_state.documents)
     total_words = sum(d.get("word_count", 0) for d in st.session_state.documents)
@@ -388,11 +531,10 @@ elif nav_selection == "Knowledge Library":
 
     st.write("")
 
-    # Upload Container
     with st.container(border=True):
         st.subheader("Upload Document")
         st.caption("Supported formats: PDF, DOCX, TXT. Uploaded files are parsed, stored in S3, and indexed in Qdrant.")
-        
+
         file_to_upload = st.file_uploader("Upload file:", type=["pdf", "txt", "docx"], label_visibility="collapsed")
         if file_to_upload is not None:
             if st.button("Process and Ingest File", type="primary"):
@@ -407,7 +549,6 @@ elif nav_selection == "Knowledge Library":
                     else:
                         st.error(f"Upload failed: {up_res.json().get('detail', 'Error')}")
 
-    # Documents List
     st.subheader("Document Library")
     if not st.session_state.documents:
         st.info("No documents uploaded yet.")
