@@ -1,12 +1,11 @@
-import pytest
 import sys
 import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../backend")))
 
-from app.utils_chunking import chunk_text
-from app.rag_service import format_latex_math
-from app.main import get_file_extension
+from app.utils_chunking import chunk_text  # type: ignore
+from app.rag_service import format_latex_math  # type: ignore
+from app.main import get_file_extension  # type: ignore
 
 
 def test_get_file_extension():
