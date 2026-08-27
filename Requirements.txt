@@ -1,0 +1,43 @@
+# SMARTDOCS AI - CORE DEPENDENCIES
+
+# --- Web Framework & API ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.8.0
+python-multipart>=0.0.9
+
+# --- Authentication & Security ---
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.1
+python-jose[cryptography]>=3.3.0
+
+# --- Database & Storage ---
+motor>=3.5.0
+pymongo>=4.8.0
+boto3>=1.34.0
+
+# --- Document Parsing & Text Processing ---
+pypdf>=4.3.0
+python-docx>=1.1.2
+
+# --- Embeddings & Vector Database ---
+sentence-transformers>=3.0.0
+torch>=2.2.0
+qdrant-client>=1.10.0
+
+# --- LLM & AI Orchestration ---
+groq>=0.9.0
+python-dotenv>=1.0.1
+
+# --- Multi-Modal Generation & Visualization ---
+matplotlib>=3.8.0
+reportlab>=4.2.0
+
+# --- Frontend UI & Client ---
+streamlit>=1.38.0
+requests>=2.32.0
+
+# --- Testing & Quality Assurance ---
+pytest>=8.2.0
+pytest-asyncio>=0.23.0
+httpx>=0.27.0
