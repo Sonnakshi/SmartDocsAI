@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File, Q
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
+from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
 from app.schemas import (
@@ -659,6 +660,57 @@ async def clear_chat_thread(
 
 
 # ========== ADMIN ROUTES ==========
+
+
+class RoleUpdateRequest(BaseModel):
+    role: str = Field(pattern="^(user|admin)$", description="New role: 'user' or 'admin'")
+
+
+@app.patch(
+    "/users/{user_id}/role",
+    response_model=UserResponse,
+    tags=["Admin"],
+    summary="Update user role (Admin only)",
+    description="Change a user's role between 'user' and 'admin'.",
+)
+async def update_user_role(
+    user_id: str,
+    role_data: RoleUpdateRequest,
+    current_user: UserResponse = Depends(get_current_admin),
+):
+    obj_id = validate_object_id(user_id)
+
+    # 1. Prevent modifying your own account
+    if str(obj_id) == current_user.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot modify your own account role.",
+        )
+
+    target_user = await users_collection.find_one({"_id": obj_id})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 2. Dynamic Seniority check: cannot demote someone created before you
+    if target_user.get("role") == "admin" and role_data.role == "user":
+        if target_user["_id"].generation_time <= ObjectId(current_user.id).generation_time:
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized action.",
+            )
+
+    await users_collection.update_one(
+        {"_id": obj_id},
+        {"$set": {"role": role_data.role}},
+    )
+
+    updated_user = await users_collection.find_one({"_id": obj_id})
+    return UserResponse(
+        id=str(updated_user["_id"]),
+        email=updated_user["email"],
+        full_name=updated_user.get("full_name"),
+        role=updated_user.get("role", "user"),
+    )
 
 
 @app.get(

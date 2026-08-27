@@ -16,3 +16,10 @@
 # preview(auth) and download files-no need for entire text in mongodb     done
 # embeddings?   done
 # why uploads on my laptop   ->used AWS S3 Bucket   done
+
+# web search of topics not mentiond in documents webdevgo (Agentic RAG)
+# Knowledge graph 
+# Requirements.txt 
+# Github secrets 
+# Login for users
+# graph in maths book
