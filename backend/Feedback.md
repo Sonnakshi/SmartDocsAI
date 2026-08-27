@@ -17,9 +17,10 @@
 # embeddings?   done
 # why uploads on my laptop   ->used AWS S3 Bucket   done
 
-# web search of topics not mentiond in documents webdevgo (Agentic RAG)
+# web search of topics not mentiond in documents webdevgo (Agentic RAG)    -->branch project to add new functionalities and merge 
+
+
 # Knowledge graph 
 # Requirements.txt 
 # Github secrets 
-# Login for users
-# graph in maths book
+# graph in maths book    done
