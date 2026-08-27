@@ -21,6 +21,6 @@
 
 
 # Knowledge graph 
-# Requirements.txt 
+# Requirements.txt done
 # Github secrets 
 # graph in maths book    done
