@@ -151,7 +151,7 @@ st.markdown(
 api = SmartDocsAPIClient()
 
 # ==========================================
-# 2. SESSION STATE
+# 2. SESSION STATE & PERSISTENT LOGIN
 # ==========================================
 if "token" not in st.session_state:
     st.session_state.token = None
@@ -161,6 +161,16 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "documents" not in st.session_state:
     st.session_state.documents = []
+
+# Auto-restore login on browser refresh
+if not st.session_state.token and "session_token" in st.query_params:
+    saved_token = st.query_params["session_token"]
+    user_res = api.get_me(saved_token)
+    if user_res.status_code == 200:
+        st.session_state.token = saved_token
+        st.session_state.user = user_res.json()
+    else:
+        st.query_params.clear()
 
 
 def refresh_documents(filename_filter=None):
@@ -204,6 +214,7 @@ if not st.session_state.token:
                             if res.status_code == 200:
                                 data = res.json()
                                 st.session_state.token = data["access_token"]
+                                st.query_params["session_token"] = data["access_token"]  # Persist across refreshes
                                 user_res = api.get_me(st.session_state.token)
                                 if user_res.status_code == 200:
                                     st.session_state.user = user_res.json()
@@ -276,6 +287,7 @@ with st.sidebar:
         st.session_state.messages = []
         st.session_state.documents = []
         st.session_state.current_scope_key = None
+        st.query_params.clear()  # Clear persistent token
         st.rerun()
 
 
